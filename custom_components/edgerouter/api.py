@@ -138,7 +138,9 @@ class EdgeRouterAPI:
 
     def _parse_traffic(self, start_raw, end_raw):
         """Parse the /proc/net/dev snapshots."""
-        
+        _LOGGER.debug("Parsing traffic. Start raw length: %d, End raw length: %d", len(start_raw), len(end_raw))
+        _LOGGER.debug("Start Raw Snippet: %s", start_raw[:500]) # Log first 500 chars
+
         def parse_block(block):
             res = {}
             lines = block.splitlines()
@@ -160,7 +162,12 @@ class EdgeRouterAPI:
                         tx = int(parts[9])
                         res[iface] = (rx, tx)
                     except ValueError:
+                        _LOGGER.debug("Failed to parse value in line: %s", line)
                         continue
+                else:
+                    _LOGGER.debug("Skipping line (not enough parts): %s", line)
+            
+            _LOGGER.debug("Parsed block keys: %s", list(res.keys()))
             return res
 
         start = parse_block(start_raw)
@@ -174,6 +181,9 @@ class EdgeRouterAPI:
                 rx_mbps = (rx2 - rx1) * 8 / 1024 / 1024 / 2.0
                 tx_mbps = (tx2 - tx1) * 8 / 1024 / 1024 / 2.0
                 rates[iface] = {"rx": rx_mbps, "tx": tx_mbps}
+                _LOGGER.debug("Calculated rate for %s: RX %.2f, TX %.2f", iface, rx_mbps, tx_mbps)
+            else:
+                _LOGGER.debug("Interface %s found in end snapshot but not start", iface)
         
         # Calculate Total Traffic
         total_rx = sum(r['rx'] for r in rates.values())
