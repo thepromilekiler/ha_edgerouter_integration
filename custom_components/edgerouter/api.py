@@ -56,11 +56,14 @@ class EdgeRouterAPI:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
+        # Initialize with defaults so sensors are always created
         data = {
-            "uptime": "",
+            "uptime": "Unknown",
+            "system_image": "Unknown",
             "interfaces": {},
             "errors": 0,
-            "system_image": ""
+            "cpu": 0.0,
+            "memory": 0.0
         }
 
         try:
@@ -77,40 +80,55 @@ class EdgeRouterAPI:
             data["uptime"] = stdout.read().decode().strip()
 
             # 2. System Image
-            # Using vbash wrapper or direct if in path. 
-            # We use full path to be safe as per our debug script findings.
-            wrapper = "/opt/vyatta/bin/vyatta-op-cmd-wrapper"
-            stdin, stdout, stderr = client.exec_command(f"{wrapper} show system image")
-            data["system_image"] = stdout.read().decode().strip()
-
-            # 3. Traffic Rates AND CPU - 2s sample
-            # We run the command: 
-            #   cat /proc/net/dev; cat /proc/stat; sleep 2; cat /proc/net/dev; cat /proc/stat
-            # This lets us calculate rates for both.
-            cmd = "cat /proc/net/dev; echo '___SPLIT___'; cat /proc/stat; echo '___SPLIT___'; sleep 2; cat /proc/net/dev; echo '___SPLIT___'; cat /proc/stat"
-            stdin, stdout, stderr = client.exec_command(cmd)
-            perf_raw = stdout.read().decode()
+            # Try multiple paths for wrapper
+            wrappers = ["/opt/vyatta/bin/vyatta-op-cmd-wrapper", "vbash -c /opt/vyatta/bin/vyatta-op-cmd-wrapper"]
+            for wrapper in wrappers:
+                stdin, stdout, stderr = client.exec_command(f"{wrapper} show system image")
+                out = stdout.read().decode().strip()
+                if out and "image" in out.lower(): # Basic validation
+                    data["system_image"] = out
+                    break
             
-            # Split into blocks
-            parts = perf_raw.split("___SPLIT___")
-            if len(parts) >= 4:
-                data["interfaces"] = self._parse_traffic(parts[0], parts[2])
-                data["cpu"] = self._parse_cpu(parts[1], parts[3])
-            
-            # 4. RAM
+            # 3. Memory
             stdin, stdout, stderr = client.exec_command("cat /proc/meminfo")
-            mem_raw = stdout.read().decode()
-            data["memory"] = self._parse_memory(mem_raw)
+            data["memory"] = self._parse_memory(stdout.read().decode())
+
+            # 4. Traffic & CPU (Sequential approach for stability)
+            # Start Snapshot
+            stdin, stdout, stderr = client.exec_command("cat /proc/net/dev")
+            dev_start = stdout.read().decode()
+            
+            stdin, stdout, stderr = client.exec_command("cat /proc/stat")
+            stat_start = stdout.read().decode()
+
+            # Wait
+            import time
+            time.sleep(2)
+
+            # End Snapshot
+            stdin, stdout, stderr = client.exec_command("cat /proc/net/dev")
+            dev_end = stdout.read().decode()
+            
+            stdin, stdout, stderr = client.exec_command("cat /proc/stat")
+            stat_end = stdout.read().decode()
+
+            if dev_start and dev_end:
+                 data["interfaces"] = self._parse_traffic(dev_start, dev_end)
+            
+            if stat_start and stat_end:
+                 data["cpu"] = self._parse_cpu(stat_start, stat_end)
 
             # 5. Logs
-            stdin, stdout, stderr = client.exec_command(f"{wrapper} show log | tail -n 50")
+            # Just try broad grep to avoid wrapper issues if possible, or use commonly available log file
+            # EdgeOS usually logs to /var/log/messages
+            stdin, stdout, stderr = client.exec_command("tail -n 50 /var/log/messages")
             log_raw = stdout.read().decode()
             data["errors"] = self._count_errors(log_raw)
 
         except Exception as e:
             _LOGGER.error("Error fetching data: %s", e)
-            # Re-raise or return partial data? Best to throw so the coordinator knows it failed.
-            raise e
+            # We return whatever partial data we have, or defaults
+            # raise e # Don't raise, just log, so at least Uptime works if CPU fails
         finally:
             client.close()
             
