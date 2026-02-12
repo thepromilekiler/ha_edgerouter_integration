@@ -27,4 +27,5 @@ Custom component to integrate Ubiquiti EdgeRouter devices into Home Assistant.
 
 ## Requirements
 - SSH access enabled on the EdgeRouter.
+- SSH Username and Password (or Key authentication if configured on your HA host).
 - Python `paramiko` library (automatically installed by HA).
