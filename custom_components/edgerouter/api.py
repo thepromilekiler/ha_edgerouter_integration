@@ -83,33 +83,35 @@ class EdgeRouterAPI:
             # Try multiple paths for wrapper
             wrappers = ["/opt/vyatta/bin/vyatta-op-cmd-wrapper", "vbash -c /opt/vyatta/bin/vyatta-op-cmd-wrapper"]
             for wrapper in wrappers:
-                stdin, stdout, stderr = client.exec_command(f"{wrapper} show system image")
+                stdin, stdout, stderr = client.exec_command(f"{wrapper} show system image", get_pty=True)
                 out = stdout.read().decode().strip()
                 if out and "image" in out.lower(): # Basic validation
                     data["system_image"] = out
                     break
             
             # 3. Memory
-            stdin, stdout, stderr = client.exec_command("cat /proc/meminfo")
+            stdin, stdout, stderr = client.exec_command("cat /proc/meminfo", get_pty=True)
             data["memory"] = self._parse_memory(stdout.read().decode())
 
             # 4. Traffic & CPU (Sequential approach for stability)
-            # Start Snapshot
-            stdin, stdout, stderr = client.exec_command("cat /proc/net/dev")
+            # 1. Fetch /proc/net/dev (Start Snapshot)
+            # Use get_pty=True to simulate interactive shell, bypassing "Account not available" errors
+            stdin, stdout, stderr = client.exec_command("cat /proc/net/dev", get_pty=True)
             dev_start = stdout.read().decode()
             
-            stdin, stdout, stderr = client.exec_command("cat /proc/stat")
+            # 2. Fetch /proc/stat (Start Snapshot)
+            stdin, stdout, stderr = client.exec_command("cat /proc/stat", get_pty=True)
             stat_start = stdout.read().decode()
-
-            # Wait
+            
+            # 3. Wait for traffic to accumulate
             import time
-            time.sleep(2)
+            time.sleep(1) # 1 second interval
 
             # End Snapshot
-            stdin, stdout, stderr = client.exec_command("cat /proc/net/dev")
+            stdin, stdout, stderr = client.exec_command("cat /proc/net/dev", get_pty=True)
             dev_end = stdout.read().decode()
             
-            stdin, stdout, stderr = client.exec_command("cat /proc/stat")
+            stdin, stdout, stderr = client.exec_command("cat /proc/stat", get_pty=True)
             stat_end = stdout.read().decode()
 
             if dev_start and dev_end:
