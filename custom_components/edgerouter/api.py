@@ -116,6 +116,8 @@ class EdgeRouterAPI:
                  data["interfaces"] = self._parse_traffic(dev_start, dev_end)
                  if not data["interfaces"] or (len(data["interfaces"]) == 1 and "total" in data["interfaces"]):
                      _LOGGER.warning("Parsed 0 interfaces from /proc/net/dev output!")
+                     _LOGGER.warning("RAW OUTPUT START (first 500 chars): %s", dev_start[:500])
+                     _LOGGER.warning("RAW OUTPUT END (first 500 chars): %s", dev_end[:500])
 
             if stat_start and stat_end:
                  data["cpu"] = self._parse_cpu(stat_start, stat_end)
