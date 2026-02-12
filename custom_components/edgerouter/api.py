@@ -114,7 +114,9 @@ class EdgeRouterAPI:
 
             if dev_start and dev_end:
                  data["interfaces"] = self._parse_traffic(dev_start, dev_end)
-            
+                 if not data["interfaces"] or (len(data["interfaces"]) == 1 and "total" in data["interfaces"]):
+                     _LOGGER.warning("Parsed 0 interfaces from /proc/net/dev output!")
+
             if stat_start and stat_end:
                  data["cpu"] = self._parse_cpu(stat_start, stat_end)
 
@@ -140,9 +142,24 @@ class EdgeRouterAPI:
         def parse_block(block):
             res = {}
             for line in block.splitlines():
-                match = re.search(r"^\s*([\w\.\-]+):\s*(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)", line)
-                if match:
-                    res[match.group(1)] = (int(match.group(2)), int(match.group(3)))
+                if "|" in line: continue # Skip headers
+                if ":" not in line: continue # Skip empty/malformed
+                
+                # Replace : with space to handle "eth0:123" and "eth0: 123"
+                clean_line = line.replace(":", " ")
+                parts = clean_line.split()
+                
+                # parts[0] is iface
+                # parts[1] is rx_bytes
+                # parts[9] is tx_bytes
+                if len(parts) >= 10:
+                    try:
+                        iface = parts[0]
+                        rx = int(parts[1])
+                        tx = int(parts[9])
+                        res[iface] = (rx, tx)
+                    except ValueError:
+                        continue
             return res
 
         start = parse_block(start_raw)
@@ -169,16 +186,17 @@ class EdgeRouterAPI:
         def get_cpu_times(raw):
             for line in raw.splitlines():
                 if line.startswith("cpu "):
-                    # cpu  user nice system idle iowait irq softirq steal guest guest_nice
                     parts = line.split()
                     if len(parts) >= 5:
-                        user = int(parts[1])
-                        nice = int(parts[2])
-                        system = int(parts[3])
-                        idle = int(parts[4])
-                        # sum all fields for total
-                        total = sum(int(x) for x in parts[1:])
-                        return total, idle
+                        try:
+                            # parts[1] is user, [2] nice, [3] system, [4] idle
+                            # Sum all numeric fields for total
+                            values = [int(x) for x in parts[1:]]
+                            total = sum(values)
+                            idle = int(parts[4])
+                            return total, idle
+                        except ValueError:
+                            continue
             return 0, 0
 
         total1, idle1 = get_cpu_times(start_raw)
@@ -187,7 +205,6 @@ class EdgeRouterAPI:
         if total2 - total1 > 0:
             total_delta = total2 - total1
             idle_delta = idle2 - idle1
-            # Usage = (Total - Idle) / Total
             usage = (total_delta - idle_delta) / total_delta * 100.0
             return round(usage, 1)
         return 0.0
@@ -200,19 +217,18 @@ class EdgeRouterAPI:
         buffers = 0
         cached = 0
         
-        # Keys we care about
         INTERESTING_KEYS = {"MemTotal", "MemAvailable", "MemFree", "Buffers", "Cached"}
 
         for line in raw.splitlines():
             parts = line.split()
             if len(parts) < 2: continue
             
+            # parts[0] is "MemTotal:"
             key = parts[0].strip(":")
             if key not in INTERESTING_KEYS:
                 continue
 
             try:
-                # Value is "12345 kB", we just want the number
                 val = int(parts[1]) 
             except ValueError:
                 continue
@@ -226,10 +242,8 @@ class EdgeRouterAPI:
         if total == 0: return 0.0
 
         if available > 0:
-            # Modern kernels
             used = total - available
         else:
-            # Older kernels (EdgeOS older versions might lack MemAvailable)
             used = total - (free + buffers + cached)
             
         return round(used / total * 100.0, 1)
