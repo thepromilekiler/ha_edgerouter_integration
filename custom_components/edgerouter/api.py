@@ -139,6 +139,11 @@ class EdgeRouterAPI:
                 tx_mbps = (tx2 - tx1) * 8 / 1024 / 1024 / 2.0
                 rates[iface] = {"rx": rx_mbps, "tx": tx_mbps}
         
+        # Calculate Total Traffic
+        total_rx = sum(r['rx'] for r in rates.values())
+        total_tx = sum(r['tx'] for r in rates.values())
+        rates['total'] = {'rx': total_rx, 'tx': total_tx}
+        
         return rates
 
     def _parse_cpu(self, start_raw, end_raw):
@@ -189,7 +194,8 @@ class EdgeRouterAPI:
                 continue
 
             try:
-                val = int(parts[1]) # kB
+                # Value is "12345 kB", we just want the number
+                val = int(parts[1]) 
             except ValueError:
                 continue
             
