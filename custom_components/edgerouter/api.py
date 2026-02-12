@@ -177,12 +177,21 @@ class EdgeRouterAPI:
         buffers = 0
         cached = 0
         
+        # Keys we care about
+        INTERESTING_KEYS = {"MemTotal", "MemAvailable", "MemFree", "Buffers", "Cached"}
+
         for line in raw.splitlines():
             parts = line.split()
             if len(parts) < 2: continue
             
             key = parts[0].strip(":")
-            val = int(parts[1]) # kB
+            if key not in INTERESTING_KEYS:
+                continue
+
+            try:
+                val = int(parts[1]) # kB
+            except ValueError:
+                continue
             
             if key == "MemTotal": total = val
             elif key == "MemAvailable": available = val
