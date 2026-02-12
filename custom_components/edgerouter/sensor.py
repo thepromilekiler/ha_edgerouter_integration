@@ -27,13 +27,14 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 class EdgeRouterSensor(CoordinatorEntity, Entity):
     """Representation of an EdgeRouter Sensor."""
 
-    def __init__(self, coordinator, key, name, icon, device_class=None):
+    def __init__(self, coordinator, key, name, icon, device_class=None, unit_of_measurement=None):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._key = key
         self._name = name
         self._icon = icon
         self._device_class = device_class
+        self._unit_of_measurement = unit_of_measurement
 
     @property
     def name(self):
@@ -58,6 +59,10 @@ class EdgeRouterSensor(CoordinatorEntity, Entity):
     @property
     def device_class(self):
         return self._device_class
+
+    @property
+    def unit_of_measurement(self):
+        return self._unit_of_measurement
 
 
 class EdgeRouterInterfaceSensor(CoordinatorEntity, Entity):
